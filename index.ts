@@ -8,7 +8,7 @@ import { notFoundHandler, errorHandler } from './middlewares/errorHandler';
 
 const app = express();
 
-// Middleware Global: CORS & Express JSON Body Parser
+// Global Middleware Configuration
 app.use(cors(corsOptions));
 app.use(express.json());
 
@@ -35,16 +35,14 @@ app.get('/health', getSystemHealth);
 // Mount Modular API Routes
 app.use('/api', apiRouter);
 
-// 404 Route Not Found Middleware
+// 404 & Global Error Handling Middleware
 app.use(notFoundHandler);
-
-// Global Error Handler Middleware
 app.use(errorHandler);
 
-// Inisialisasi Database & Start Server
+// Inisialisasi Database Connection & Listen Server
 DatabaseConnection.connect().then(() => {
   app.listen(config.port, () => {
-    console.log(`🚀 [Puthu Lanang Backend] REST API Server running at http://localhost:${config.port}`);
+    console.log(`[Puthu Lanang Backend] REST API Server running on port ${config.port}`);
   });
 });
 
