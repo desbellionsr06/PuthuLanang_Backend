@@ -1,20 +1,18 @@
-import express, { Request, Response } from 'express';
+﻿import express, { Request, Response } from 'express';
 import cors from 'cors';
-import authRoutes from './routes/authRoutes';
-import menuRoutes from './routes/menuRoutes';
-import orderRoutes from './routes/orderRoutes';
-import adminRoutes from './routes/adminRoutes';
-import aiRoutes from './routes/aiRoutes';
-import outletRoutes from './routes/outletRoutes';
+import { config, DatabaseConnection } from './config/database';
+import { corsOptions } from './config/corsOptions';
+import apiRouter from './routes/index';
+import { getSystemHealth } from './controllers/systemController';
+import { notFoundHandler, errorHandler } from './middlewares/errorHandler';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Enable CORS & Body Parser
-app.use(cors());
+// Middleware Global: CORS & Express JSON Body Parser
+app.use(cors(corsOptions));
 app.use(express.json());
 
-// Root Health Check Route
+// Root Health & System Status Endpoint
 app.get('/', (req: Request, res: Response) => {
   res.status(200).json({
     status: 'ONLINE',
@@ -27,29 +25,27 @@ app.get('/', (req: Request, res: Response) => {
       admin: ['/api/admin/metrics (GET)'],
       ai: ['/api/ai/preview (GET)'],
       outlet: ['/api/outlet/status (GET)'],
+      health: ['/health (GET)'],
     },
   });
 });
 
-// Register Modular API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/menu', menuRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/ai', aiRoutes);
-app.use('/api/outlet', outletRoutes);
+app.get('/health', getSystemHealth);
 
-// 404 Handler for undefined routes
-app.use((req: Request, res: Response) => {
-  res.status(404).json({
-    success: false,
-    message: `Endpoint REST API '${req.method} ${req.url}' tidak ditemukan!`,
+// Mount Modular API Routes
+app.use('/api', apiRouter);
+
+// 404 Route Not Found Middleware
+app.use(notFoundHandler);
+
+// Global Error Handler Middleware
+app.use(errorHandler);
+
+// Inisialisasi Database & Start Server
+DatabaseConnection.connect().then(() => {
+  app.listen(config.port, () => {
+    console.log(`🚀 [Puthu Lanang Backend] REST API Server running at http://localhost:${config.port}`);
   });
-});
-
-// Start Express Server
-app.listen(PORT, () => {
-  console.log(`🚀 [Puthu Lanang Backend] REST API Server running at http://localhost:${PORT}`);
 });
 
 export default app;
