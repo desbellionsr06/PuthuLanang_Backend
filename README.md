@@ -1,4 +1,4 @@
-# ⚙️ Puthu Lanang - Backend API (Node.js)
+# ⚙️ Puthu Lanang - Backend API 
 
 Repositori ini berisi layanan backend (API) dan koneksi database MySQL untuk aplikasi Puthu Lanang.
 
