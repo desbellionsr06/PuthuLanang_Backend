@@ -4,10 +4,39 @@ const cors = require('cors');
 const mysql = require('mysql2');
 const https = require('https');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// ── Konfigurasi penyimpanan file gambar menu ──────────────────────────────────
+// File disimpan ke folder public/uploads/ dengan nama unik berbasis timestamp.
+// Folder dibuat otomatis jika belum ada.
+const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const menuImageStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.jpg';
+    cb(null, 'menu-' + Date.now() + ext);
+  },
+});
+const uploadMenuImage = multer({
+  storage: menuImageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // maks 5 MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Hanya file gambar yang diizinkan.'));
+  },
+});
+
+// Sajikan folder uploads sebagai static files (/uploads/menu-xxx.jpg)
+app.use('/uploads', express.static(UPLOADS_DIR));
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Mode development/UTS: OTP disertakan di response API agar mudah di-demo
 // tanpa gateway WhatsApp berbayar. Matikan dengan: DEV_MODE=false npm run dev
@@ -1116,6 +1145,48 @@ app.delete('/api/admin/menu/:id', (req, res) => {
     });
   });
 });
+
+// =============================================================
+// PATCH /api/admin/menu/:id/image — Upload & simpan gambar menu
+// Menerima: multipart/form-data dengan field "image" (file gambar)
+// File disimpan ke public/uploads/, path disimpan ke kolom image di DB
+// =============================================================
+app.patch('/api/admin/menu/:id/image', (req, res) => {
+  withAdminAuth(req, res, () => {
+    const menuId = String(req.params.id);
+    if (!menuId) return res.status(400).json({ error: 'ID menu tidak valid.' });
+
+    uploadMenuImage.single('image')(req, res, (multerErr) => {
+      if (multerErr) {
+        return res.status(400).json({ error: multerErr.message || 'Gagal memproses file gambar.' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'File gambar tidak ditemukan dalam request.' });
+      }
+
+      // Path yang akan disimpan di DB: "/uploads/menu-xxx.jpg"
+      // Dapat diakses langsung dari browser via http://localhost:5000/uploads/menu-xxx.jpg
+      const imagePath = '/uploads/' + req.file.filename;
+
+      db.query(
+        'UPDATE menu SET image = ? WHERE id = ?',
+        [imagePath, menuId],
+        (err, result) => {
+          if (err) return res.status(500).json({ error: err.message });
+          if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Menu tidak ditemukan.' });
+          }
+          console.log(`✅ Gambar menu "${menuId}" diperbarui: ${imagePath}`);
+          res.json({
+            message: 'Gambar menu berhasil diperbarui',
+            data: { id: menuId, image: imagePath, image_url: `http://localhost:5000${imagePath}` },
+          });
+        }
+      );
+    });
+  });
+});
+
 
 // GET /api/admin/stats — Statistik ringkas dashboard
 app.get('/api/admin/stats', (req, res) => {
