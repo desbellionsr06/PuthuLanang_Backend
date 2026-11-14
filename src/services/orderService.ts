@@ -184,10 +184,13 @@ export async function getAdminOrders(status?: string): Promise<RowDataPacket[]> 
   let query = `
     SELECT
       CONCAT('ORD-', o.id) AS id,
+      CONCAT('ORD-', o.id) AS order_id,
       o.id AS raw_id,
       o.user_id,
       o.name,
+      o.name AS customer_name,
       o.phone,
+      o.phone AS customer_phone,
       o.pickup_time,
       DATE_FORMAT(o.pickup_date, '%Y-%m-%d') AS pickup_date,
       o.total,
