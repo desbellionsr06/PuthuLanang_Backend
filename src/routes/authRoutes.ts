@@ -25,6 +25,7 @@ const RegisterSchema = z.object({
 const ManagerTokenSchema = z.object({
   email: z.string().email('Email manajer tidak valid.'),
   nama: z.string().min(1).max(100).default('Manajer Puthu Lanang'),
+  role: z.enum(['owner', 'cashier', 'manager']).default('owner'),
 });
 
 const FcmTokenSchema = z.object({
@@ -155,7 +156,11 @@ router.post(
     }
 
     try {
-      const result = await authService.issueManagerJwtToken(req.body.email, req.body.nama);
+      const result = await authService.issueManagerJwtToken(
+        req.body.email,
+        req.body.nama,
+        req.body.role
+      );
       res.json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Gagal menerbitkan token manajer.';

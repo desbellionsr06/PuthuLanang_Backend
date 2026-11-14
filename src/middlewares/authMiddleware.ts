@@ -57,7 +57,8 @@ export const authenticateJwt = (
 };
 
 /**
- * Middleware RBAC: membatasi endpoint untuk peran tertentu ('customer' / 'manager').
+ * Middleware RBAC: membatasi endpoint untuk peran tertentu ('owner', 'cashier', 'customer', 'manager').
+ * Mengembalikan error 403 Forbidden jika token bertipe 'customer' mengakses endpoint admin.
  */
 export const authorizeRoles = (...allowedRoles: UserRole[]) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
@@ -66,10 +67,19 @@ export const authorizeRoles = (...allowedRoles: UserRole[]) => {
       return;
     }
 
+    // Blokir akses customer ke endpoint admin
+    if (req.user.role === 'customer' && !allowedRoles.includes('customer')) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Akses ditolak (403 Forbidden). Akun pelanggan (customer) dilarang mengakses endpoint manajerial/admin.',
+      });
+      return;
+    }
+
     if (!allowedRoles.includes(req.user.role)) {
       res.status(403).json({
         status: 'error',
-        message: `Akses ditolak. Fitur ini khusus peran: ${allowedRoles.join(', ')}.`,
+        message: `Akses ditolak (403 Forbidden). Fitur ini khusus peran: ${allowedRoles.join(', ')}.`,
       });
       return;
     }
@@ -151,11 +161,21 @@ export const authenticateManager = async (
   if (token) {
     const payload = verifyJwtToken(token);
     if (!payload) {
-      res.status(401).json({ error: 'Token JWT manajer tidak valid atau kedaluwarsa.' });
+      res.status(401).json({ status: 'error', message: 'Token JWT staf/admin tidak valid atau kedaluwarsa.' });
       return;
     }
-    if (payload.role !== 'manager') {
-      res.status(403).json({ error: 'Akses ditolak. Memerlukan peran Pemantau/Manajer.' });
+    if (payload.role === 'customer') {
+      res.status(403).json({
+        status: 'error',
+        message: 'Akses ditolak (403 Forbidden). Akun customer dilarang mengakses panel admin.',
+      });
+      return;
+    }
+    if (!['owner', 'cashier', 'manager'].includes(payload.role)) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Akses ditolak (403 Forbidden). Memerlukan peran owner atau cashier.',
+      });
       return;
     }
     req.user = payload;
@@ -168,13 +188,13 @@ export const authenticateManager = async (
     req.user = {
       id: 0,
       no_whatsapp: 'admin-system',
-      nama: 'Manajer Operasional',
-      role: 'manager',
+      nama: 'Pemilik Gerai (Owner)',
+      role: 'owner',
     };
     next();
     return;
   }
 
-  res.status(403).json({ error: 'Akses admin/manajer tidak diizinkan.' });
+  res.status(403).json({ status: 'error', message: 'Akses admin tidak diizinkan.' });
 };
 

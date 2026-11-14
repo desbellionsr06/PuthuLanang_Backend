@@ -61,7 +61,15 @@ export async function loginCustomer(noWhatsapp: string, password: string) {
   }
 
   const user = rows[0];
-  const role: UserRole = user.role === 'manager' ? 'manager' : 'customer';
+  const roleName = String(user.role).toLowerCase();
+  const role: UserRole =
+    roleName === 'owner'
+      ? 'owner'
+      : roleName === 'cashier'
+      ? 'cashier'
+      : roleName === 'manager'
+      ? 'manager'
+      : 'customer';
   const payload: JwtUserPayload = {
     id: Number(user.id),
     no_whatsapp: String(user.no_whatsapp),
@@ -247,30 +255,35 @@ export async function resetPasswordWithOtp(
  * Menerbitkan JWT Token resmi untuk peran Pemantau/Manajer (Next.js Web Admin)
  * berdasarkan email Google OAuth yang sudah terverifikasi di server Next.js.
  */
-export async function issueManagerJwtToken(email: string, nama: string) {
+export async function issueManagerJwtToken(
+  email: string,
+  nama: string,
+  role: 'owner' | 'cashier' | 'manager' = 'owner'
+) {
   const cleanEmail = email.trim().toLowerCase();
   const [rows] = await db.query<RowDataPacket[]>(
     'SELECT id, nama, no_whatsapp FROM users WHERE no_whatsapp = ? LIMIT 1',
     [cleanEmail]
   );
 
+  const roleId = role === 'cashier' ? 3 : 2; // 2: owner, 3: cashier
   let managerId: number;
   if (rows.length === 0) {
     const [insertRes] = await db.query<ResultSetHeader>(
-      'INSERT INTO users (role_id, nama, no_whatsapp, password, is_verified) VALUES (2, ?, ?, ?, 1)',
-      [nama, cleanEmail, 'google-oauth-manager']
+      'INSERT INTO users (role_id, nama, no_whatsapp, password, is_verified) VALUES (?, ?, ?, ?, 1)',
+      [roleId, nama, cleanEmail, 'google-oauth-admin']
     );
     managerId = insertRes.insertId;
   } else {
     managerId = Number(rows[0].id);
-    await db.query('UPDATE users SET role_id = 2, nama = ? WHERE id = ?', [nama, managerId]);
+    await db.query('UPDATE users SET role_id = ?, nama = ? WHERE id = ?', [roleId, nama, managerId]);
   }
 
   const payload: JwtUserPayload = {
     id: managerId,
     no_whatsapp: cleanEmail,
     nama,
-    role: 'manager',
+    role,
   };
 
   return {

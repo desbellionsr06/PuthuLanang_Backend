@@ -1,6 +1,6 @@
 import { Request } from 'express';
 
-export type UserRole = 'customer' | 'manager';
+export type UserRole = 'owner' | 'cashier' | 'customer' | 'manager';
 
 export interface JwtUserPayload {
   id: number;
@@ -15,4 +15,3 @@ export interface AuthenticatedRequest extends Request {
 
 export type AiFeatureType = 'queue_estimator' | 'menu_recommendation';
 export type AiVerificationStatus = 'pending' | 'verified' | 'rejected';
-

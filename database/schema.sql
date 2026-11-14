@@ -7,10 +7,10 @@
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS roles (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(30) NOT NULL UNIQUE -- 'customer' (Mobile), 'manager' (Web Admin)
+    name VARCHAR(30) NOT NULL UNIQUE -- 'customer' (Mobile), 'owner' / 'cashier' / 'manager' (Web Admin)
 );
 
-INSERT IGNORE INTO roles (id, name) VALUES (1, 'customer'), (2, 'manager');
+INSERT IGNORE INTO roles (id, name) VALUES (1, 'customer'), (2, 'owner'), (3, 'cashier'), (4, 'manager');
 
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,

@@ -36,7 +36,7 @@ const VerifyAiSchema = z.object({
 router.post(
   '/queue-estimator',
   authenticateJwt,
-  authorizeRoles('customer', 'manager'),
+  authorizeRoles('customer', 'owner', 'cashier', 'manager'),
   validateBody(QueueEstimateSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -74,7 +74,7 @@ router.post(
 router.post(
   '/recommendation',
   authenticateJwt,
-  authorizeRoles('customer', 'manager'),
+  authorizeRoles('customer', 'owner', 'cashier', 'manager'),
   validateBody(RecommendationSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     try {

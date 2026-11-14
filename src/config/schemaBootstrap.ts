@@ -32,7 +32,7 @@ export async function bootstrapDatabaseSchema(): Promise<void> {
       name VARCHAR(30) NOT NULL UNIQUE
     )
   `);
-  await db.query(`INSERT IGNORE INTO roles (id, name) VALUES (1, 'customer'), (2, 'manager')`);
+  await db.query(`INSERT IGNORE INTO roles (id, name) VALUES (1, 'customer'), (2, 'owner'), (3, 'cashier'), (4, 'manager')`);
 
   await ensureColumn('users', 'role_id', 'ALTER TABLE users ADD COLUMN role_id INT NOT NULL DEFAULT 1 AFTER id');
   await ensureColumn('users', 'fcm_token', 'ALTER TABLE users ADD COLUMN fcm_token VARCHAR(255) NULL AFTER password');
