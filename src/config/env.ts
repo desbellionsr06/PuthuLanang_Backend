@@ -22,6 +22,7 @@ export const env = {
   JWT_EXPIRES: process.env.JWT_EXPIRES || '30d',
   ADMIN_SECRET: getEnv('ADMIN_SECRET', 'puthu-admin-2026'),
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+  GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
   FCM_SERVER_KEY: process.env.FCM_SERVER_KEY || '',
   FONNTE_TOKEN: process.env.FONNTE_TOKEN || '',
   MIDTRANS_SERVER_KEY: process.env.MIDTRANS_SERVER_KEY || '',

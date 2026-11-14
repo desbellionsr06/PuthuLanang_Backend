@@ -1,7 +1,12 @@
 node_modules/
 dist/
 .env
-.env.local
+.env.example
 .DS_Store
 public/uploads/*
 !public/uploads/.gitkeep
+# Firebase service account credentials
+firebase-service-account.json
+*service-account*.json
+*serviceAccountKey*.json
+google-credentials*.json

@@ -5,6 +5,7 @@ import fs from 'fs';
 import helmet from 'helmet';
 import path from 'path';
 import { env } from './config/env';
+import { initializeFirebase } from './config/firebase';
 import { httpLogger, logger } from './config/logger';
 import { bootstrapDatabaseSchema } from './config/schemaBootstrap';
 import { errorHandler, notFoundHandler } from './middlewares/errorMiddleware';
@@ -112,6 +113,13 @@ async function startServer() {
       { err: err instanceof Error ? err.message : err },
       '❌ Peringatan inisialisasi MySQL. Pastikan database puthu_lanang_db berjalan.'
     );
+  }
+
+  // Inisialisasi Firebase Admin SDK untuk FCM HTTP v1
+  try {
+    initializeFirebase();
+  } catch (err) {
+    logger.warn({ err }, '⚠️ Inisialisasi Firebase Admin SDK dilewati.');
   }
 
   app.listen(env.PORT, () => {
