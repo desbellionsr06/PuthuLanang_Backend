@@ -93,6 +93,29 @@ router.post(
 );
 
 /**
+ * GET /api/ai/verified-latest
+ * Endpoint untuk Mobile Flutter: HANYA mengembalikan data AI yang telah lolos verifikasi Manajer ('verified').
+ */
+router.get('/verified-latest', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const rawFeature =
+      typeof req.query.feature_type === 'string' ? req.query.feature_type : 'queue_estimator';
+    const featureType =
+      rawFeature === 'menu_recommendation' ? 'menu_recommendation' : 'queue_estimator';
+
+    const data = await aiQueueService.getLatestVerifiedAiResult(featureType);
+    res.json({
+      status: 'success',
+      verified_only: true,
+      data,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Gagal memuat insight AI tervalidasi.';
+    res.status(500).json({ status: 'error', message });
+  }
+});
+
+/**
  * GET /api/ai/stats
  * Ringkasan analitik audit & verifikasi AI untuk peran Pemantau/Manajer.
  */

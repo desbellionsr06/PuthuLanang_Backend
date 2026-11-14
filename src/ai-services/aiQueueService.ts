@@ -422,3 +422,46 @@ export async function verifyAiLogByManager(
   }
 }
 
+/**
+ * Mengambil hasil prediksi/rekomendasi AI terkini yang telah DISETUJUI (verified) oleh Manajer Web Admin.
+ * Menjamin Frontend Mobile hanya menampilkan output yang telah lolos validasi manusia.
+ */
+export async function getLatestVerifiedAiResult(featureType: AiFeatureType = 'queue_estimator') {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, feature_type, anonymized_input, validated_output, confidence_score, verification_status, verification_notes, verified_at, created_at
+     FROM ai_predictions_logs
+     WHERE verification_status = 'verified' AND feature_type = ?
+     ORDER BY verified_at DESC, id DESC
+     LIMIT 1`,
+    [featureType]
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const row = rows[0];
+  const parseJson = (val: unknown) => {
+    if (typeof val === 'string') {
+      try {
+        return JSON.parse(val);
+      } catch {
+        return val;
+      }
+    }
+    return val;
+  };
+
+  return {
+    id: row.id,
+    feature_type: row.feature_type,
+    anonymized_input: parseJson(row.anonymized_input),
+    validated_output: parseJson(row.validated_output),
+    confidence_score: row.confidence_score,
+    verification_status: row.verification_status,
+    verification_notes: row.verification_notes,
+    verified_at: row.verified_at,
+    created_at: row.created_at,
+  };
+}
+
