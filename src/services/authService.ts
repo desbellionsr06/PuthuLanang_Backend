@@ -1,51 +1,10 @@
-import https from 'https';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { db } from '../config/db';
 import { env } from '../config/env';
+import { logger } from '../config/logger';
 import { signJwtToken } from '../middlewares/authMiddleware';
 import { JwtUserPayload, UserRole } from '../types';
-
-function sendFonnteMessage(targetPhone: string, message: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify({
-      target: targetPhone,
-      message,
-      countryCode: '62',
-    });
-
-    const req = https.request(
-      {
-        hostname: 'api.fonnte.com',
-        port: 443,
-        path: '/send',
-        method: 'POST',
-        headers: {
-          Authorization: env.FONNTE_TOKEN,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(data),
-        },
-      },
-      (res) => {
-        let body = '';
-        res.on('data', (chunk) => {
-          body += chunk;
-        });
-        res.on('end', () => {
-          console.log('[FONNTE RESPONSE]:', body);
-          resolve(body);
-        });
-      }
-    );
-
-    req.on('error', (err) => {
-      console.error('[FONNTE ERROR]:', err.message);
-      reject(err);
-    });
-
-    req.write(data);
-    req.end();
-  });
-}
+import { sendWhatsAppMessage } from './whatsapp.service';
 
 export async function loginCustomer(noWhatsapp: string, password: string) {
   const [rows] = await db.query<RowDataPacket[]>(
@@ -165,23 +124,38 @@ export async function sendOtpCode(noWhatsapp: string, type?: string) {
     expiresAt,
   ]);
 
-  console.log('KODE OTP:', otpCode, `(untuk ${noWhatsapp})`);
+  // Hapus console.log OTP dan buat template pesan WhatsApp resmi
+  const templatePesan =
+    `🔒 *KODE OTP PUTHU LANANG MALANG*\n\n` +
+    `Halo! Kode verifikasi Anda adalah: *${otpCode}*\n\n` +
+    `⏱️ Kode ini berlaku selama *5 menit*.\n` +
+    `⚠️ JANGAN bagikan kode ini kepada siapa pun demi keamanan akun Anda.\n\n` +
+    `_Puthu Lanang Malang — Cita Rasa Pusaka Sejak 1935_`;
 
-  const pesan =
-    `🔒 *KODE OTP PUTHU LANANG*\n\n` +
-    `Kode verifikasi Anda: *${otpCode}*\n` +
-    `Berlaku 5 menit. Jangan berikan kode ini kepada siapa pun.\n\n` +
-    `_Puthu Lanang Malang — EST. 1935_`;
-
-  if (env.DEV_MODE) {
-    sendFonnteMessage(noWhatsapp, pesan).catch((err) =>
-      console.warn('[OTP FONNTE GAGAL]:', err instanceof Error ? err.message : err)
+  try {
+    await sendWhatsAppMessage(noWhatsapp, templatePesan);
+    return {
+      success: true,
+      message: 'Kode OTP berhasil dikirim ke nomor WhatsApp Anda.',
+    };
+  } catch (error) {
+    logger.error(
+      { err: error instanceof Error ? error.message : error, noWhatsapp },
+      'Gagal mengirim OTP WhatsApp via Fonnte'
     );
-    return { success: true, otp_code: otpCode, message: 'OTP berhasil dikirim' };
-  }
 
-  await sendFonnteMessage(noWhatsapp, pesan);
-  return { success: true, message: 'Kode OTP berhasil dikirim ke WhatsApp Anda.' };
+    if (env.DEV_MODE) {
+      // Pada mode dev, beri respons informatif tanpa membocorkan OTP jika Fonnte gagal
+      return {
+        success: true,
+        message: 'Kode OTP sedang diproses (Dev Mode aktif).',
+      };
+    }
+
+    throw new Error(
+      'Gagal mengirim pesan OTP ke nomor WhatsApp. Pastikan nomor aktif atau coba lagi beberapa saat.'
+    );
+  }
 }
 
 export async function verifyOtpCode(params: {

@@ -82,6 +82,10 @@ export async function bootstrapDatabaseSchema(): Promise<void> {
   await ensureColumn('orders', 'user_id', 'ALTER TABLE orders ADD COLUMN user_id INT NULL AFTER id');
   await ensureColumn('orders', 'name', 'ALTER TABLE orders ADD COLUMN name VARCHAR(100) NULL AFTER user_id');
   await ensureColumn('orders', 'phone', 'ALTER TABLE orders ADD COLUMN phone VARCHAR(20) NULL AFTER name');
+  await ensureColumn('orders', 'payment_method', "ALTER TABLE orders ADD COLUMN payment_method VARCHAR(30) NOT NULL DEFAULT 'cash' AFTER total");
+  await ensureColumn('orders', 'payment_status', "ALTER TABLE orders ADD COLUMN payment_status VARCHAR(30) NOT NULL DEFAULT 'pending' AFTER payment_method");
+  await ensureColumn('orders', 'snap_token', 'ALTER TABLE orders ADD COLUMN snap_token VARCHAR(255) NULL AFTER payment_status');
+  await ensureColumn('orders', 'snap_redirect_url', 'ALTER TABLE orders ADD COLUMN snap_redirect_url VARCHAR(500) NULL AFTER snap_token');
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS ai_predictions_logs (

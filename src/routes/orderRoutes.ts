@@ -14,6 +14,8 @@ const CreateOrderSchema = z.object({
   items: z.array(z.any()).optional(),
   total: z.coerce.number().positive('Field total wajib diisi dengan angka lebih dari 0.'),
   notes: z.string().max(300).optional(),
+  payment_method: z.enum(['cash', 'qris', 'transfer']).or(z.string()).optional(),
+  paymentMethod: z.string().optional(),
 });
 
 router.post(
