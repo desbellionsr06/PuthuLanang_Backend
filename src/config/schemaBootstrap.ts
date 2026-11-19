@@ -61,6 +61,8 @@ export async function bootstrapDatabaseSchema(): Promise<void> {
   await ensureColumn('menu', 'deskripsi', 'ALTER TABLE menu ADD COLUMN deskripsi TEXT NULL');
   await ensureColumn('menu', 'gambar', 'ALTER TABLE menu ADD COLUMN gambar VARCHAR(255) NULL');
   await ensureColumn('menu', 'tersedia', 'ALTER TABLE menu ADD COLUMN tersedia TINYINT(1) DEFAULT 1');
+  await ensureColumn('menu', 'estimasi_waktu_kukus', 'ALTER TABLE menu ADD COLUMN estimasi_waktu_kukus INT NULL DEFAULT 15 AFTER stock');
+  await ensureColumn('menu', 'takaran_porsi', 'ALTER TABLE menu ADD COLUMN takaran_porsi VARCHAR(100) NULL AFTER estimasi_waktu_kukus');
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS outlets (
@@ -86,6 +88,8 @@ export async function bootstrapDatabaseSchema(): Promise<void> {
   await ensureColumn('orders', 'payment_status', "ALTER TABLE orders ADD COLUMN payment_status VARCHAR(30) NOT NULL DEFAULT 'pending' AFTER payment_method");
   await ensureColumn('orders', 'snap_token', 'ALTER TABLE orders ADD COLUMN snap_token VARCHAR(255) NULL AFTER payment_status');
   await ensureColumn('orders', 'snap_redirect_url', 'ALTER TABLE orders ADD COLUMN snap_redirect_url VARCHAR(500) NULL AFTER snap_token');
+  await ensureColumn('orders', 'estimated_minutes', 'ALTER TABLE orders ADD COLUMN estimated_minutes INT NULL AFTER summary_items');
+  await ensureColumn('orders', 'estimated_ready_at', 'ALTER TABLE orders ADD COLUMN estimated_ready_at DATETIME NULL AFTER estimated_minutes');
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS ai_predictions_logs (

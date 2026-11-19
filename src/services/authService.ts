@@ -1,26 +1,18 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { db } from '../config/db';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { signJwtToken } from '../middlewares/authMiddleware';
+import * as userModel from '../models/userModel';
 import { JwtUserPayload, UserRole } from '../types';
 import { sendWhatsAppMessage } from './whatsapp.service';
 
 export async function loginCustomer(noWhatsapp: string, password: string) {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT u.id, u.nama, u.no_whatsapp, COALESCE(r.name, 'customer') AS role
-     FROM users u
-     LEFT JOIN roles r ON u.role_id = r.id
-     WHERE u.no_whatsapp = ? AND u.password = ? LIMIT 1`,
-    [noWhatsapp, password]
-  );
+  const user = await userModel.findUserByPhone(noWhatsapp);
 
-  if (rows.length === 0) {
+  if (!user || user.password !== password) {
     throw new Error('Nomor WhatsApp atau password salah.');
   }
 
-  const user = rows[0];
-  const roleName = String(user.role).toLowerCase();
+  const roleName = String(user.role_name || 'customer').toLowerCase();
   const role: UserRole =
     roleName === 'owner'
       ? 'owner'
@@ -29,6 +21,7 @@ export async function loginCustomer(noWhatsapp: string, password: string) {
       : roleName === 'manager'
       ? 'manager'
       : 'customer';
+
   const payload: JwtUserPayload = {
     id: Number(user.id),
     no_whatsapp: String(user.no_whatsapp),
@@ -47,44 +40,35 @@ export async function loginCustomer(noWhatsapp: string, password: string) {
 }
 
 export async function verifyActiveSession(userId: number) {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT u.id, u.nama, u.no_whatsapp, COALESCE(r.name, 'customer') AS role
-     FROM users u
-     LEFT JOIN roles r ON u.role_id = r.id
-     WHERE u.id = ? LIMIT 1`,
-    [userId]
-  );
-
-  if (rows.length === 0) {
+  const user = await userModel.findUserById(userId);
+  if (!user) {
     return null;
   }
 
-  const user = rows[0];
   return {
     id: Number(user.id),
     nama: String(user.nama),
     no_whatsapp: String(user.no_whatsapp),
-    role: (user.role === 'manager' ? 'manager' : 'customer') as UserRole,
+    role: (user.role_name === 'manager' ? 'manager' : 'customer') as UserRole,
   };
 }
 
 export async function registerCustomer(nama: string, noWhatsapp: string, password: string) {
-  const [existing] = await db.query<RowDataPacket[]>(
-    'SELECT id FROM users WHERE no_whatsapp = ? LIMIT 1',
-    [noWhatsapp]
-  );
-
-  if (existing.length > 0) {
+  const existing = await userModel.findUserByPhone(noWhatsapp);
+  if (existing) {
     throw new Error('Nomor WhatsApp sudah terdaftar. Silakan masuk.');
   }
 
-  const [result] = await db.query<ResultSetHeader>(
-    'INSERT INTO users (role_id, nama, no_whatsapp, password, is_verified) VALUES (1, ?, ?, ?, 1)',
-    [nama, noWhatsapp, password]
-  );
+  const newUserId = await userModel.createUser({
+    role_id: 1,
+    nama,
+    no_whatsapp: noWhatsapp,
+    password,
+    is_verified: 1,
+  });
 
   const payload: JwtUserPayload = {
-    id: result.insertId,
+    id: newUserId,
     nama,
     no_whatsapp: noWhatsapp,
     role: 'customer',
@@ -101,11 +85,8 @@ export async function registerCustomer(nama: string, noWhatsapp: string, passwor
 }
 
 export async function sendOtpCode(noWhatsapp: string, type?: string) {
-  const [existing] = await db.query<RowDataPacket[]>(
-    'SELECT id FROM users WHERE no_whatsapp = ? LIMIT 1',
-    [noWhatsapp]
-  );
-  const isExist = existing.length > 0;
+  const existing = await userModel.findUserByPhone(noWhatsapp);
+  const isExist = !!existing;
 
   if (type === 'register' && isExist) {
     throw new Error('Nomor WhatsApp sudah terdaftar. Silakan masuk.');
@@ -117,14 +98,8 @@ export async function sendOtpCode(noWhatsapp: string, type?: string) {
   const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-  await db.query('DELETE FROM otp_codes WHERE no_whatsapp = ?', [noWhatsapp]);
-  await db.query('INSERT INTO otp_codes (no_whatsapp, otp_code, expires_at) VALUES (?, ?, ?)', [
-    noWhatsapp,
-    otpCode,
-    expiresAt,
-  ]);
+  await userModel.createOtpCode(noWhatsapp, otpCode, expiresAt);
 
-  // Hapus console.log OTP dan buat template pesan WhatsApp resmi
   const templatePesan =
     `🔒 *KODE OTP PUTHU LANANG MALANG*\n\n` +
     `Halo! Kode verifikasi Anda adalah: *${otpCode}*\n\n` +
@@ -145,7 +120,6 @@ export async function sendOtpCode(noWhatsapp: string, type?: string) {
     );
 
     if (env.DEV_MODE) {
-      // Pada mode dev, beri respons informatif tanpa membocorkan OTP jika Fonnte gagal
       return {
         success: true,
         message: 'Kode OTP sedang diproses (Dev Mode aktif).',
@@ -165,14 +139,8 @@ export async function verifyOtpCode(params: {
   password?: string;
   is_register?: boolean;
 }) {
-  const [otpRows] = await db.query<RowDataPacket[]>(
-    `SELECT * FROM otp_codes
-     WHERE no_whatsapp = ? AND otp_code = ? AND expires_at > NOW()
-     ORDER BY id DESC LIMIT 1`,
-    [params.no_whatsapp, params.otp_code]
-  );
-
-  if (otpRows.length === 0) {
+  const validOtp = await userModel.findValidOtp(params.no_whatsapp, params.otp_code);
+  if (!validOtp) {
     throw new Error('Kode OTP salah atau sudah kedaluwarsa.');
   }
 
@@ -185,7 +153,7 @@ export async function verifyOtpCode(params: {
     params.no_whatsapp,
     params.password || ''
   );
-  await db.query('DELETE FROM otp_codes WHERE no_whatsapp = ?', [params.no_whatsapp]);
+  await userModel.deleteOtpByPhone(params.no_whatsapp);
 
   return {
     message: 'Registrasi & Verifikasi Berhasil!',
@@ -202,32 +170,23 @@ export async function resetPasswordWithOtp(
     throw new Error('Password baru minimal 6 karakter.');
   }
 
-  const [otpRows] = await db.query<RowDataPacket[]>(
-    `SELECT * FROM otp_codes
-     WHERE no_whatsapp = ? AND otp_code = ? AND expires_at > NOW()
-     ORDER BY id DESC LIMIT 1`,
-    [noWhatsapp, otpCode]
-  );
-
-  if (otpRows.length === 0) {
+  const validOtp = await userModel.findValidOtp(noWhatsapp, otpCode);
+  if (!validOtp) {
     throw new Error('Kode OTP salah atau sudah kedaluwarsa.');
   }
 
-  const [updateRes] = await db.query<ResultSetHeader>(
-    'UPDATE users SET password = ? WHERE no_whatsapp = ?',
-    [newPassword, noWhatsapp]
-  );
-
-  if (updateRes.affectedRows === 0) {
+  const updated = await userModel.updateUserPassword(noWhatsapp, newPassword);
+  if (!updated) {
     throw new Error('Akun tidak ditemukan.');
   }
 
-  await db.query('DELETE FROM otp_codes WHERE no_whatsapp = ?', [noWhatsapp]);
+  await userModel.deleteOtpByPhone(noWhatsapp);
 }
 
 /**
  * Menerbitkan JWT Token resmi untuk peran Pemantau/Manajer (Next.js Web Admin)
  * berdasarkan email Google OAuth yang sudah terverifikasi di server Next.js.
+ * Membatasi maksimal 3 akun admin sah.
  */
 export async function issueManagerJwtToken(
   email: string,
@@ -235,23 +194,10 @@ export async function issueManagerJwtToken(
   role: 'owner' | 'cashier' | 'manager' = 'owner'
 ) {
   const cleanEmail = email.trim().toLowerCase();
-  const [rows] = await db.query<RowDataPacket[]>(
-    'SELECT id, nama, no_whatsapp FROM users WHERE no_whatsapp = ? LIMIT 1',
-    [cleanEmail]
-  );
+  const roleId = role === 'cashier' ? 3 : 2;
 
-  const roleId = role === 'cashier' ? 3 : 2; // 2: owner, 3: cashier
-  let managerId: number;
-  if (rows.length === 0) {
-    const [insertRes] = await db.query<ResultSetHeader>(
-      'INSERT INTO users (role_id, nama, no_whatsapp, password, is_verified) VALUES (?, ?, ?, ?, 1)',
-      [roleId, nama, cleanEmail, 'google-oauth-admin']
-    );
-    managerId = insertRes.insertId;
-  } else {
-    managerId = Number(rows[0].id);
-    await db.query('UPDATE users SET role_id = ?, nama = ? WHERE id = ?', [roleId, nama, managerId]);
-  }
+  // upsertManagerUser akan membatasi maksimal 3 admin
+  const managerId = await userModel.upsertManagerUser(cleanEmail, nama, roleId);
 
   const payload: JwtUserPayload = {
     id: managerId,
@@ -267,6 +213,5 @@ export async function issueManagerJwtToken(
 }
 
 export async function updateUserFcmToken(userId: number, fcmToken: string): Promise<void> {
-  await db.query('UPDATE users SET fcm_token = ? WHERE id = ?', [fcmToken, userId]);
+  await userModel.updateUserFcmToken(userId, fcmToken);
 }
-

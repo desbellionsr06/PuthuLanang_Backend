@@ -1,9 +1,8 @@
 import { Response, NextFunction } from 'express';
 import jwt, { SignOptions } from 'jsonwebtoken';
-import { RowDataPacket } from 'mysql2';
 import { env } from '../config/env';
-import { db } from '../config/db';
 import { AuthenticatedRequest, JwtUserPayload, UserRole } from '../types';
+import { findUserById, isAuthorizedAdmin } from '../models/userModel';
 
 export function signJwtToken(payload: JwtUserPayload): string {
   const options: SignOptions = {
@@ -119,17 +118,11 @@ export const authenticateCustomerOrLegacy = async (
   }
 
   try {
-    const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT u.id, u.nama, u.no_whatsapp, COALESCE(r.name, 'customer') AS role
-       FROM users u LEFT JOIN roles r ON u.role_id = r.id
-       WHERE u.id = ? LIMIT 1`,
-      [userId]
-    );
-    if (rows.length === 0) {
+    const user = await findUserById(userId);
+    if (!user) {
       res.status(401).json({ error: 'Akun tidak ditemukan atau sudah dihapus.' });
       return;
     }
-    const user = rows[0];
     if (token !== `server-token-${user.no_whatsapp}`) {
       res.status(403).json({ error: 'Sesi tidak valid untuk akun ini.' });
       return;
@@ -138,7 +131,7 @@ export const authenticateCustomerOrLegacy = async (
       id: Number(user.id),
       nama: String(user.nama),
       no_whatsapp: String(user.no_whatsapp),
-      role: (user.role === 'manager' ? 'manager' : 'customer'),
+      role: (user.role_name === 'manager' || user.role_name === 'owner' || user.role_name === 'cashier' ? 'manager' : 'customer'),
     };
     next();
   } catch (err) {
@@ -149,8 +142,9 @@ export const authenticateCustomerOrLegacy = async (
 
 /**
  * Middleware khusus Admin/Manajer:
- * Memprioritaskan JWT dengan role 'manager'. Jika masih membawa X-Admin-Key selama masa transisi,
- * hanya diizinkan apabila bukan token 'customer'.
+ * Memprioritaskan JWT dengan role 'manager', 'owner', atau 'cashier'.
+ * Memvalidasi pembatasan akun admin maksimal 3 akun sah.
+ * Jika masih membawa X-Admin-Key selama masa transisi, hanya diizinkan apabila valid.
  */
 export const authenticateManager = async (
   req: AuthenticatedRequest,
@@ -178,6 +172,19 @@ export const authenticateManager = async (
       });
       return;
     }
+
+    // Validasi pembatasan: hanya akun admin sah (maksimal 3 akun pertama) yang berhak akses
+    if (payload.id && payload.id > 0) {
+      const authorized = await isAuthorizedAdmin(payload.id);
+      if (!authorized) {
+        res.status(403).json({
+          status: 'error',
+          message: 'Akses ditolak (403 Forbidden). Akun Anda tidak terdaftar dalam kuota admin sah yang berwenang (maksimal 3 akun).',
+        });
+        return;
+      }
+    }
+
     req.user = payload;
     next();
     return;
@@ -197,4 +204,3 @@ export const authenticateManager = async (
 
   res.status(403).json({ status: 'error', message: 'Akses admin tidak diizinkan.' });
 };
-

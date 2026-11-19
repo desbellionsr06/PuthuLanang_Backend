@@ -1,5 +1,4 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { db } from '../config/db';
+import * as menuModel from '../models/menuModel';
 
 function slugifyMenuId(str: string): string {
   const base = str
@@ -28,9 +27,12 @@ function defaultImageForCategory(category: string, name = ''): string {
   return 'assets/images/paket_tampah.png';
 }
 
-export async function getAllMenu(): Promise<RowDataPacket[]> {
-  const [rows] = await db.query<RowDataPacket[]>('SELECT * FROM menu ORDER BY id ASC');
-  return rows;
+export async function getAllMenu() {
+  return menuModel.getAllMenusFromDb();
+}
+
+export async function getMenuById(id: string) {
+  return menuModel.getMenuById(id);
 }
 
 export async function createMenuItem(input: {
@@ -40,6 +42,8 @@ export async function createMenuItem(input: {
   description?: string;
   image?: string;
   stock?: number;
+  estimasi_waktu_kukus?: number;
+  takaran_porsi?: string;
 }) {
   const category = (input.category || 'pusaka').trim();
   const description = (input.description || '').trim() || 'Sajian jajanan pasar tradisional otentik 1935.';
@@ -48,69 +52,69 @@ export async function createMenuItem(input: {
   let menuId = slugifyMenuId(input.name);
 
   try {
-    await db.query(
-      'INSERT INTO menu (id, name, price, category, description, image, stock) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [menuId, input.name, input.price, category, description, image, stock]
-    );
+    await menuModel.insertMenuItemInDb({
+      id: menuId,
+      name: input.name,
+      price: input.price,
+      category,
+      description,
+      image,
+      stock,
+      estimasi_waktu_kukus: input.estimasi_waktu_kukus,
+      takaran_porsi: input.takaran_porsi,
+    });
   } catch (err: unknown) {
     const code = (err as { code?: string }).code;
     if (code === 'ER_DUP_ENTRY') {
       menuId = slugifyMenuId(input.name);
-      await db.query(
-        'INSERT INTO menu (id, name, price, category, description, image, stock) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [menuId, input.name, input.price, category, description, image, stock]
-      );
+      await menuModel.insertMenuItemInDb({
+        id: menuId,
+        name: input.name,
+        price: input.price,
+        category,
+        description,
+        image,
+        stock,
+        estimasi_waktu_kukus: input.estimasi_waktu_kukus,
+        takaran_porsi: input.takaran_porsi,
+      });
     } else {
       throw err;
     }
   }
 
-  return { id: menuId, name: input.name, price: input.price, category, description, image, stock };
+  return {
+    id: menuId,
+    name: input.name,
+    price: input.price,
+    category,
+    description,
+    image,
+    stock,
+    estimasi_waktu_kukus: input.estimasi_waktu_kukus ?? 15,
+    takaran_porsi: input.takaran_porsi ?? null,
+  };
 }
 
 export async function updateMenuItem(
   menuId: string,
-  payload: { name?: string; price?: number; category?: string; description?: string }
+  payload: {
+    name?: string;
+    price?: number;
+    category?: string;
+    description?: string;
+    stock?: number;
+    estimasi_waktu_kukus?: number;
+    takaran_porsi?: string;
+  }
 ): Promise<boolean> {
-  const fields: string[] = [];
-  const vals: unknown[] = [];
-
-  if (payload.name !== undefined) {
-    fields.push('name = ?');
-    vals.push(payload.name);
-  }
-  if (payload.price !== undefined) {
-    fields.push('price = ?');
-    vals.push(Number(payload.price));
-  }
-  if (payload.category !== undefined) {
-    fields.push('category = ?');
-    vals.push(payload.category);
-  }
-  if (payload.description !== undefined) {
-    fields.push('description = ?');
-    vals.push(payload.description);
-  }
-
-  if (fields.length === 0) {
-    throw new Error('Tidak ada field untuk diupdate.');
-  }
-
-  vals.push(menuId);
-  const [res] = await db.query<ResultSetHeader>(`UPDATE menu SET ${fields.join(', ')} WHERE id = ?`, vals);
-  return res.affectedRows > 0;
+  return menuModel.updateMenuItemInDb(menuId, payload);
 }
 
 export async function deleteMenuItem(menuId: string): Promise<boolean> {
-  const [res] = await db.query<ResultSetHeader>('DELETE FROM menu WHERE id = ?', [menuId]);
-  return res.affectedRows > 0;
+  return menuModel.deleteMenuItemInDb(menuId);
 }
 
 export async function updateMenuImagePath(menuId: string, imagePath: string): Promise<boolean> {
-  const [res] = await db.query<ResultSetHeader>('UPDATE menu SET image = ? WHERE id = ?', [
-    imagePath,
-    menuId,
-  ]);
-  return res.affectedRows > 0;
+  return menuModel.updateMenuImagePathInDb(menuId, imagePath);
 }
-

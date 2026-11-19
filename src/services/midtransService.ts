@@ -66,6 +66,13 @@ export async function createMidtransTransaction(
     enabledPayments = ['bca_va', 'bni_va', 'bri_va', 'permata_va', 'echannel', 'other_va'];
   }
 
+  // Anti-redirect ke example.com dengan menentukan callback finish
+  const finishCallbackUrl =
+    process.env.MOBILE_APP_URL ||
+    (process.env.CLIENT_URL
+      ? `${process.env.CLIENT_URL}/payment-finish`
+      : `http://localhost:${env.PORT}/payment-finish`);
+
   const parameter: Record<string, any> = {
     transaction_details: {
       order_id: orderId,
@@ -76,6 +83,9 @@ export async function createMidtransTransaction(
       phone: customerPhone || '088212383828',
     },
     item_details: formattedItems,
+    callbacks: {
+      finish: finishCallbackUrl,
+    },
   };
 
   if (enabledPayments) {

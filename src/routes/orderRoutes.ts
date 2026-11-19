@@ -1,9 +1,8 @@
-import { Router, Response } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import { authenticateCustomerOrLegacy } from '../middlewares/authMiddleware';
 import { validateBody } from '../middlewares/validateMiddleware';
-import { AuthenticatedRequest } from '../types';
-import * as orderService from '../services/orderService';
+import * as orderController from '../controllers/orderController';
 
 const router = Router();
 
@@ -16,60 +15,25 @@ const CreateOrderSchema = z.object({
   notes: z.string().max(300).optional(),
   payment_method: z.enum(['cash', 'qris', 'transfer']).or(z.string()).optional(),
   paymentMethod: z.string().optional(),
+  estimated_minutes: z.coerce.number().positive().optional(),
 });
 
+// Endpoint pembuatan pesanan (memvalidasi jam operasional 17:30 – 21:30 WIB)
 router.post(
   '/',
   authenticateCustomerOrLegacy,
   validateBody(CreateOrderSchema),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const data = await orderService.createOrder(req.user!, req.body);
-      res.json({ message: 'Pesanan berhasil dibuat', data });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Gagal membuat pesanan.';
-      res.status(500).json({ error: message });
-    }
-  }
+  orderController.createOrder
 );
 
-router.get(
-  '/',
-  authenticateCustomerOrLegacy,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const rows = await orderService.getOrdersForUser(req.user!.id);
-      res.json({ data: rows });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Gagal mengambil riwayat pesanan.';
-      res.status(500).json({ error: message });
-    }
-  }
-);
+// Riwayat pesanan pengguna
+router.get('/', authenticateCustomerOrLegacy, orderController.getUserOrders);
 
-router.patch(
-  '/:id/complete',
-  authenticateCustomerOrLegacy,
-  async (req: AuthenticatedRequest, res: Response) => {
-    const orderId = parseInt(String(req.params.id).replace(/^ORD-/i, ''), 10);
-    if (!Number.isInteger(orderId) || orderId <= 0) {
-      res.status(400).json({ error: 'ID pesanan tidak valid.' });
-      return;
-    }
+// Tandai pesanan selesai
+router.patch('/:id/complete', authenticateCustomerOrLegacy, orderController.markOrderComplete);
 
-    try {
-      await orderService.markOrderComplete(orderId, req.user!.id);
-      res.json({
-        message: 'Pesanan ditandai selesai',
-        data: { id: `ORD-${orderId}`, status: 'Selesai' },
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Gagal menyelesaikan pesanan.';
-      const status = message.includes('tidak ditemukan') ? 404 : 500;
-      res.status(status).json({ error: message });
-    }
-  }
-);
+// Endpoint Invoice & Struk Pembayaran (Requirement 3)
+router.get('/invoice/:order_id', orderController.getOrderInvoice);
+router.get('/:id', orderController.getOrderInvoice);
 
 export default router;
-

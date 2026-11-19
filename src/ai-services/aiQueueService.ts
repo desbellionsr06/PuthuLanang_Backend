@@ -1,5 +1,3 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { db } from '../config/db';
 import { env } from '../config/env';
 import { AiFeatureType, AiVerificationStatus } from '../types';
 import { sendPushNotificationToUser } from '../services/notificationService';
@@ -13,6 +11,16 @@ import {
   AiRecommendationOutputSchema,
   parseAndValidateAiJson,
 } from './aiValidator';
+import {
+  createAiLogInDb,
+  updateAiLogStatusInDb,
+  findAiLogByIdFromDb,
+  findAiLogsFromDb,
+  findLatestVerifiedAiFromDb,
+  getAiLogStatsFromDb,
+} from '../models/aiLogModel';
+import { countActiveOrdersInDb } from '../models/orderModel';
+import { getAllMenusFromDb } from '../models/menuModel';
 
 export interface QueueEstimateInput {
   userId?: number;
@@ -167,7 +175,7 @@ function computeDeterministicRecommendationFallback(
 
 /**
  * Estimasi waktu antrean cerdas via Gemini API dengan filter prompt injection,
- * anonimisasi PII, validasi skema JSON Zod, dan pencatatan ke ai_predictions_logs.
+ * anonimisasi PII, validasi skema JSON Zod, dan pencatatan ke database melalui aiLogModel.
  */
 export async function estimateQueueWithAi(input: QueueEstimateInput): Promise<{
   logId: number;
@@ -178,10 +186,7 @@ export async function estimateQueueWithAi(input: QueueEstimateInput): Promise<{
   const cleanDay = sanitizePromptInput(input.day, 40);
   const cleanSlot = sanitizePromptInput(input.timeSlot, 40);
 
-  const [countRows] = await db.query<RowDataPacket[]>(
-    "SELECT COUNT(*) AS active_orders FROM orders WHERE status IN ('Baru', 'Diproses', 'Sedang Dikukus')"
-  );
-  const activeOrders = Number(countRows[0]?.active_orders ?? 0);
+  const activeOrders = await countActiveOrdersInDb();
 
   const safeContext = anonymizeAiContext({
     outlet: cleanOutlet,
@@ -214,34 +219,30 @@ export async function estimateQueueWithAi(input: QueueEstimateInput): Promise<{
     validatedOutput = parseAndValidateAiJson(fallbackRaw, AiQueueOutputSchema);
   }
 
-  const [insertRes] = await db.query<ResultSetHeader>(
-    `INSERT INTO ai_predictions_logs
-     (feature_type, requested_by_user_id, anonymized_input, validated_output, confidence_score, verification_status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`,
-    [
-      'queue_estimator',
-      input.userId ?? null,
-      JSON.stringify(safeContext),
-      JSON.stringify(validatedOutput),
-      validatedOutput.confidence_score,
-    ]
-  );
+  const logId = await createAiLogInDb({
+    featureType: 'queue_estimator',
+    userId: input.userId,
+    anonymizedInput: safeContext as Record<string, unknown>,
+    validatedOutput: validatedOutput as unknown as Record<string, unknown>,
+    confidenceScore: validatedOutput.confidence_score,
+    verificationStatus: 'pending',
+  });
 
   return {
-    logId: insertRes.insertId,
+    logId,
     prediction: validatedOutput,
     aiEngine,
   };
 }
 
 /**
- * Rekomendasi menu cerdas via Gemini API dengan validasi JSON & pencatatan ke ai_predictions_logs.
+ * Rekomendasi menu cerdas via Gemini API dengan validasi JSON & pencatatan melalui aiLogModel.
  */
 export async function recommendMenuWithAi(input: MenuRecommendationInput) {
   const cleanQuery = sanitizePromptInput(input.query ?? '', 200);
   const cleanPreference = sanitizePromptInput(input.preference ?? '', 120);
 
-  const [menuRows] = await db.query<RowDataPacket[]>('SELECT * FROM menu ORDER BY id ASC');
+  const menuRows = await getAllMenusFromDb();
   const catalog: NormalizedMenuItem[] =
     menuRows.length > 0
       ? menuRows.map((m) => ({
@@ -296,21 +297,17 @@ export async function recommendMenuWithAi(input: MenuRecommendationInput) {
 
   const totalEstimated = mappedItems.reduce((sum, item) => sum + item.harga * item.qty, 0);
 
-  const [insertRes] = await db.query<ResultSetHeader>(
-    `INSERT INTO ai_predictions_logs
-     (feature_type, requested_by_user_id, anonymized_input, validated_output, confidence_score, verification_status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`,
-    [
-      'menu_recommendation',
-      input.userId ?? null,
-      JSON.stringify(safeContext),
-      JSON.stringify({ ...validatedAi, total_estimated: totalEstimated, items: mappedItems }),
-      '94% Relevansi Kurasi AI',
-    ]
-  );
+  const logId = await createAiLogInDb({
+    featureType: 'menu_recommendation',
+    userId: input.userId,
+    anonymizedInput: safeContext as Record<string, unknown>,
+    validatedOutput: { ...validatedAi, total_estimated: totalEstimated, items: mappedItems },
+    confidenceScore: '94% Relevansi Kurasi AI',
+    verificationStatus: 'pending',
+  });
 
   return {
-    log_id: insertRes.insertId,
+    log_id: logId,
     recommendation_title: validatedAi.recommendation_title,
     reason: validatedAi.reason,
     ai_tag: validatedAi.ai_tag,
@@ -322,67 +319,19 @@ export async function recommendMenuWithAi(input: MenuRecommendationInput) {
 export async function getAiLogs(
   status?: AiVerificationStatus,
   featureType?: AiFeatureType
-): Promise<RowDataPacket[]> {
-  let sql = `
-    SELECT a.id, a.feature_type, a.requested_by_user_id, a.anonymized_input,
-           a.validated_output, a.confidence_score, a.verification_status,
-           a.verification_notes, a.verified_at, a.created_at,
-           u.nama AS requested_by_name
-    FROM ai_predictions_logs a
-    LEFT JOIN users u ON a.requested_by_user_id = u.id
-  `;
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-
-  if (status) {
-    conditions.push('a.verification_status = ?');
-    params.push(status);
-  }
-  if (featureType) {
-    conditions.push('a.feature_type = ?');
-    params.push(featureType);
-  }
-
-  if (conditions.length > 0) {
-    sql += ` WHERE ${conditions.join(' AND ')}`;
-  }
-
-  sql += ' ORDER BY a.created_at DESC LIMIT 50';
-  const [rows] = await db.query<RowDataPacket[]>(sql, params);
-
+) {
+  const rows = await findAiLogsFromDb(status, featureType);
   return rows.map((row) => ({
     ...row,
     anonymized_input:
       typeof row.anonymized_input === 'string' ? JSON.parse(row.anonymized_input) : row.anonymized_input,
     validated_output:
       typeof row.validated_output === 'string' ? JSON.parse(row.validated_output) : row.validated_output,
-  })) as RowDataPacket[];
+  }));
 }
 
 export async function getAiVerificationStats() {
-  const [rows] = await db.query<RowDataPacket[]>(`
-    SELECT
-      COUNT(*) AS total_logs,
-      SUM(CASE WHEN verification_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-      SUM(CASE WHEN verification_status = 'verified' THEN 1 ELSE 0 END) AS verified_count,
-      SUM(CASE WHEN verification_status = 'rejected' THEN 1 ELSE 0 END) AS rejected_count
-    FROM ai_predictions_logs
-  `);
-
-  const row = rows[0] ?? {};
-  const total = Number(row.total_logs ?? 0);
-  const verified = Number(row.verified_count ?? 0);
-  const rejected = Number(row.rejected_count ?? 0);
-  const reviewed = verified + rejected;
-  const verificationRatePct = reviewed > 0 ? Math.round((verified / reviewed) * 100) : 0;
-
-  return {
-    total_logs: total,
-    pending_count: Number(row.pending_count ?? 0),
-    verified_count: verified,
-    rejected_count: rejected,
-    verification_rate_pct: verificationRatePct,
-  };
+  return getAiLogStatsFromDb();
 }
 
 export async function verifyAiLogByManager(
@@ -391,24 +340,14 @@ export async function verifyAiLogByManager(
   status: 'verified' | 'rejected',
   notes?: string
 ): Promise<void> {
-  const verifiedBy = managerId > 0 ? managerId : null;
-  const [updateRes] = await db.query<ResultSetHeader>(
-    `UPDATE ai_predictions_logs
-     SET verification_status = ?, verification_notes = ?, verified_by_user_id = ?, verified_at = NOW()
-     WHERE id = ?`,
-    [status, notes ?? null, verifiedBy, logId]
-  );
-
-  if (updateRes.affectedRows === 0) {
+  const success = await updateAiLogStatusInDb(logId, managerId, status, notes);
+  if (!success) {
     throw new Error('Log prediksi AI tidak ditemukan.');
   }
 
-  const [rows] = await db.query<RowDataPacket[]>(
-    'SELECT requested_by_user_id FROM ai_predictions_logs WHERE id = ? LIMIT 1',
-    [logId]
-  );
+  const logRow = await findAiLogByIdFromDb(logId);
+  const targetUserId = logRow?.requested_by_user_id;
 
-  const targetUserId = rows[0]?.requested_by_user_id as number | null | undefined;
   if (targetUserId && targetUserId > 0) {
     const title =
       status === 'verified'
@@ -427,20 +366,11 @@ export async function verifyAiLogByManager(
  * Menjamin Frontend Mobile hanya menampilkan output yang telah lolos validasi manusia.
  */
 export async function getLatestVerifiedAiResult(featureType: AiFeatureType = 'queue_estimator') {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, feature_type, anonymized_input, validated_output, confidence_score, verification_status, verification_notes, verified_at, created_at
-     FROM ai_predictions_logs
-     WHERE verification_status = 'verified' AND feature_type = ?
-     ORDER BY verified_at DESC, id DESC
-     LIMIT 1`,
-    [featureType]
-  );
-
-  if (rows.length === 0) {
+  const row = await findLatestVerifiedAiFromDb(featureType);
+  if (!row) {
     return null;
   }
 
-  const row = rows[0];
   const parseJson = (val: unknown) => {
     if (typeof val === 'string') {
       try {
@@ -464,4 +394,3 @@ export async function getLatestVerifiedAiResult(featureType: AiFeatureType = 'qu
     created_at: row.created_at,
   };
 }
-

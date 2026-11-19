@@ -1,17 +1,8 @@
-import { Router, Request, Response } from 'express';
-import { getAllMenu } from '../services/menuService';
+import { Router } from 'express';
+import * as menuController from '../controllers/menuController';
 
 const router = Router();
 
-router.get('/', async (_req: Request, res: Response) => {
-  try {
-    const results = await getAllMenu();
-    res.json(results);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Gagal mengambil daftar menu.';
-    res.status(500).json({ error: message });
-  }
-});
+router.get('/', menuController.getAllMenu);
 
 export default router;
-

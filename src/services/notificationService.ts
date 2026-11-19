@@ -1,7 +1,13 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { db } from '../config/db';
 import { getFirebaseMessaging } from '../config/firebase';
 import { logger } from '../config/logger';
+import {
+  createNotificationLogInDb,
+  updateNotificationStatusInDb,
+  findNotificationsByUserIdFromDb,
+  markNotificationsReadInDb,
+  NotificationRow,
+} from '../models/notificationModel';
+import { findUserById } from '../models/userModel';
 
 export interface SendPushNotificationOptions {
   data?: Record<string, string>;
@@ -10,7 +16,7 @@ export interface SendPushNotificationOptions {
 
 /**
  * Mengirim push notification ke perangkat Flutter user melalui FCM HTTP v1
- * menggunakan library `firebase-admin` dan menyimpan riwayat di MySQL `push_notifications_log`.
+ * menggunakan library `firebase-admin` dan mencatat riwayat di tabel `push_notifications_log`.
  */
 export async function sendPushNotificationToUser(
   userId: number,
@@ -18,20 +24,12 @@ export async function sendPushNotificationToUser(
   body: string,
   options?: SendPushNotificationOptions
 ): Promise<void> {
-  // 1. Simpan audit log awal di database dengan status 'queued'
-  const [logRes] = await db.query<ResultSetHeader>(
-    'INSERT INTO push_notifications_log (user_id, title, body, status) VALUES (?, ?, ?, ?)',
-    [userId, title, body, 'queued']
-  );
-  const logId = logRes.insertId;
+  // 1. Simpan audit log awal di database melalui notificationModel
+  const logId = await createNotificationLogInDb(userId, title, body, 'queued');
 
-  // 2. Ambil token FCM perangkat pengguna dari tabel users
-  const [userRows] = await db.query<RowDataPacket[]>(
-    'SELECT fcm_token FROM users WHERE id = ? LIMIT 1',
-    [userId]
-  );
-
-  const fcmToken = userRows[0]?.fcm_token as string | undefined;
+  // 2. Ambil token FCM perangkat pengguna dari userModel
+  const user = await findUserById(userId);
+  const fcmToken = user?.fcm_token;
   if (!fcmToken || !fcmToken.trim()) {
     logger.debug(
       { userId, logId },
@@ -89,10 +87,7 @@ export async function sendPushNotificationToUser(
       },
     });
 
-    await db.query('UPDATE push_notifications_log SET status = ? WHERE id = ?', [
-      'sent',
-      logId,
-    ]);
+    await updateNotificationStatusInDb(logId, 'sent');
 
     logger.info(
       { userId, logId, messageId: messageResponse },
@@ -104,24 +99,14 @@ export async function sendPushNotificationToUser(
       'Gagal mengirim Push Notification via FCM HTTP v1.'
     );
 
-    await db.query('UPDATE push_notifications_log SET status = ? WHERE id = ?', [
-      'failed',
-      logId,
-    ]);
+    await updateNotificationStatusInDb(logId, 'failed');
   }
 }
 
-export async function getUserNotifications(userId: number): Promise<RowDataPacket[]> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, title, body, status, is_read, created_at
-     FROM push_notifications_log
-     WHERE user_id = ?
-     ORDER BY created_at DESC LIMIT 30`,
-    [userId]
-  );
-  return rows;
+export async function getUserNotifications(userId: number): Promise<NotificationRow[]> {
+  return findNotificationsByUserIdFromDb(userId);
 }
 
 export async function markUserNotificationsRead(userId: number): Promise<void> {
-  await db.query('UPDATE push_notifications_log SET is_read = 1 WHERE user_id = ?', [userId]);
+  return markNotificationsReadInDb(userId);
 }
