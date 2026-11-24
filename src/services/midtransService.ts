@@ -66,12 +66,15 @@ export async function createMidtransTransaction(
     enabledPayments = ['bca_va', 'bni_va', 'bri_va', 'permata_va', 'echannel', 'other_va'];
   }
 
-  // Anti-redirect ke example.com dengan menentukan callback finish
-  const finishCallbackUrl =
-    process.env.MOBILE_APP_URL ||
-    (process.env.CLIENT_URL
-      ? `${process.env.CLIENT_URL}/payment-finish`
-      : `http://localhost:${env.PORT}/payment-finish`);
+  // Anti-redirect ke example.com dengan mengarahkan callback finish ke aplikasi mobile
+  const mobileBase = (
+    env.MOBILE_APP_URL ||
+    process.env.CLIENT_URL ||
+    'https://puthu-lanang-mobile.vercel.app'
+  ).replace(/\/+$/, '');
+  const finishCallbackUrl = mobileBase.endsWith('/payment-finish')
+    ? mobileBase
+    : `${mobileBase}/payment-finish`;
 
   const parameter: Record<string, any> = {
     transaction_details: {

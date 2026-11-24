@@ -51,8 +51,63 @@ const sensitiveEndpointsLimiter = rateLimit({
   },
 });
 
+// 6. Konfigurasi CORS: Izinkan Web Admin, Mobile Web, dan Localhost
+const defaultAllowedOrigins = [
+  'https://puthu-lanang-frontend-admin.vercel.app',
+  'https://puthu-lanang-mobile.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5000',
+];
+
+if (env.CORS_ORIGIN) {
+  env.CORS_ORIGIN.split(',').forEach((orig) => {
+    const trimmed = orig.trim();
+    if (trimmed && !defaultAllowedOrigins.includes(trimmed)) {
+      defaultAllowedOrigins.push(trimmed);
+    }
+  });
+}
+
+const isOriginAllowed = (origin: string): boolean => {
+  if (defaultAllowedOrigins.includes(origin)) return true;
+  if (origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app')) return true;
+  if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return true;
+  if (/^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
+  if (/^http:\/\/10\.0\.2\.2(:\d+)?$/.test(origin)) return true;
+  return false;
+};
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Izinkan request tanpa origin (mobile app Android/iOS native, curl, postman, server-to-server)
+      if (!origin || isOriginAllowed(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Admin-Key',
+      'x-admin-key',
+      'X-Request-Id',
+      'x-request-id',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+    ],
+    exposedHeaders: ['X-Request-Id', 'x-request-id'],
+    credentials: true,
+    maxAge: 86400,
+  })
+);
+
 app.use(express.json({ limit: '5mb' }));
-app.use(cors());
 
 // Direktori static uploads
 const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
@@ -123,7 +178,9 @@ async function startServer() {
   }
 
   app.listen(env.PORT, () => {
-    logger.info(`🚀 Server Puthu Lanang berjalan di http://localhost:${env.PORT}`);
+    logger.info(
+      `🚀 Server Puthu Lanang berjalan di port ${env.PORT} (${env.NODE_ENV}) | Local: http://localhost:${env.PORT}`
+    );
   });
 }
 

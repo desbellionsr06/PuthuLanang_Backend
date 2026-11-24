@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
+import { env } from '../config/env';
 import { AppError } from '../errors/AppError';
 import * as menuService from '../services/menuService';
 
@@ -251,12 +252,13 @@ export function updateMenuImage(req: Request, res: Response): void {
         res.status(404).json({ error: 'Menu tidak ditemukan.' });
         return;
       }
+      const publicBase = (env.BACKEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
       res.json({
         message: 'Gambar menu berhasil diperbarui',
         data: {
           id: menuId,
           image: imagePath,
-          image_url: `http://localhost:${process.env.PORT || 5000}${imagePath}`,
+          image_url: `${publicBase}${imagePath}`,
         },
       });
     } catch (err) {
