@@ -286,34 +286,59 @@ export async function countActiveOrdersInDb(): Promise<number> {
 }
 
 export async function getSalesChartFromDb(rawDays?: number) {
-  const days = Math.min(Math.max(rawDays || 7, 1), 90);
+  const parsedDays = typeof rawDays === 'number' && Number.isFinite(rawDays) ? Math.trunc(rawDays) : 7;
+  const days = Math.min(Math.max(parsedDays || 7, 1), 90);
+
+  // Kompatibel 100% dengan MySQL 8 ONLY_FULL_GROUP_BY:
+  // Semua ekspresi non-agregasi di SELECT identik dengan GROUP BY.
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT
-       DATE(created_at) AS day,
-       DATE_FORMAT(created_at, '%d/%m') AS label,
+       DATE_FORMAT(created_at, '%Y-%m-%d') AS day,
        COUNT(*) AS total_orders,
-       COALESCE(SUM(total), 0) AS total_revenue
+       COALESCE(SUM(COALESCE(total, 0)), 0) AS total_revenue
      FROM orders
      WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-     GROUP BY DATE(created_at)
-     ORDER BY DATE(created_at) ASC`,
+     GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+     ORDER BY day ASC`,
     [days - 1]
   );
 
-  const result: any[] = [];
+  const byDay = new Map<string, { total_orders: number; total_revenue: number }>();
+  for (const r of rows) {
+    const key =
+      typeof r.day === 'string'
+        ? r.day.slice(0, 10)
+        : r.day instanceof Date
+        ? r.day.toISOString().slice(0, 10)
+        : '';
+    if (!key) continue;
+    byDay.set(key, {
+      total_orders: Number(r.total_orders) || 0,
+      total_revenue: Number(r.total_revenue) || 0,
+    });
+  }
+
+  const result: Array<{
+    date: string;
+    label: string;
+    total_orders: number;
+    total_revenue: number;
+  }> = [];
+
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-    const label = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const found = rows.find(
-      (r) => r.day && new Date(r.day).toISOString().slice(0, 10) === dateStr
-    );
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+    const label = `${dd}/${mm}`;
+    const found = byDay.get(dateStr);
     result.push({
       date: dateStr,
       label,
-      total_orders: found ? Number(found.total_orders) : 0,
-      total_revenue: found ? Number(found.total_revenue) : 0,
+      total_orders: found ? found.total_orders : 0,
+      total_revenue: found ? found.total_revenue : 0,
     });
   }
 

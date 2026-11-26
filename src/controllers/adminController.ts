@@ -79,6 +79,7 @@ export async function getSalesChart(req: Request, res: Response): Promise<void> 
     const chartData = await orderService.getSalesChartData(rawDays);
     res.json(chartData);
   } catch (err) {
+    console.error('[adminController.getSalesChart] Error fetching sales chart:', err);
     const message = err instanceof Error ? err.message : 'Gagal mengambil data grafik.';
     res.status(500).json({ error: message });
   }
